@@ -1,13 +1,137 @@
 program mydate
-        
+
+    implicit none
+
+    character(len=24), parameter :: rfc_2822_format = "%a, %d %b %Y %H:%M:%S %z"
+
+    logical :: set_date = .false.
+    ! logical :: valid_date = .false.
+    logical :: ok = .false.
+
+    integer :: i = 1
+    integer :: option_specified_date = 0
+    
+    integer, dimension(8) :: when
+
+    character(len=32) :: optc = ""
+    character(len=32) :: datestr = "" 
+    character(len=32) :: batch_file = ""
+    character(len=32) :: reference = ""
+    character(len=32) :: new_format = ""
+    character(len=32) :: my_format = ""
+    character(len=32) :: set_datestr = ""
+    character(len=32) :: error = ""
+    character(len=32) :: date = ""
+
+    do
+        call get_command_argument(i, optc)
+        if (len_trim(optc) == 0) exit
+        i = i + 1
+
+        select case (optc)
+            case ("-d")
+                call getarg(i, datestr)
+                i = i + 1
+            case ("-f")
+                call getarg(i, batch_file)
+                i = i + 1
+            ! case ("--rfc-3339")
+            !     call getarg(2, batch_file)
+            ! case ("-I")
+            !     call getarg(2, batch_file)
+            case ("-r")
+                call getarg(2, reference)
+            case ("-R")
+                new_format = rfc_2822_format
+            case ("-s")
+                call getarg(2, set_datestr)
+                set_date = .true.
+            ! case ("-u")
+            !     call getarg(2, set_datestr)
+            !     set_date = .true.
+            case default
+                call usage(.false.)
+        end select
+
+        if (new_format /= "") then
+            if (my_format /= "") then
+                write (*, *) "multiple output formats specified"
+            end if
+            my_format = new_format
+        end if
+    END DO    
+
+    option_specified_date = merge(1, 0, datestr /= "") + merge(1, 0, batch_file /= "") + merge(1, 0, reference /= "")
+
+    if (option_specified_date > 1) then
+        call usage(.false.)
+        write (*, *) "the options to specify dates for printing are mutually exclusive"
+    end if
+
+    if (set_date .and. option_specified_date > 0) then
+        write (*, *) "the options to print and set the time may not be used together"
+        call usage(.false.)
+    end if
+    
+    if (i < iargc()) then
+        if (i + 1 < iargc()) then
+            call getarg(i+1, error)
+            write (*, *) "extra operand ", error
+            call usage (.false.)
+        end if
+        call getarg(i, error)
+        if (index(error, '+') > 0) then
+            write (*, *) "multiple output formats specified"
+            my_format = error
+            i = i + 1
+        else if (set_date .or. option_specified_date > 0) then
+            call getarg(i, error)
+            write (*, *) "the argument "//error//" lacks a leading '+'"
+            write (*, *) "when using an option to specify date(s), any non-option"
+            write (*, *)  "argument must be a format string beginning with '+'"
+            call usage (.false.)
+        end if
+    end if
+
+    if (my_format == "") then
+        my_format = "%a %b %e %H:%M:%S %Z %Y"
+    end if
+    
+    if (batch_file /= "") then
+        print *, 'file'
+    else
+        ok = .true.
+        if (option_specified_date == 0 .and. .not.set_date) then
+            if (i < iargc()) then
+                set_date = .true.
+                call getarg(iargc(), datestr)
+                ! valid_date = 
+            else
+                date = fdate()
+                call date_and_time (values=when)
+                when(4) = when(4) / 60
+            end if
+        end if
+        ok = ok .and. show_date (my_format, when, date)
+    end if
+
+
 contains
+
+    function show_date (my_format, when, date)
+        character(len=32) :: my_format, date
+        integer, dimension(8) :: when
+        logical :: show_date
+        if (my_format == "%a %b %e %H:%M:%S %Z %Y") then
+            print "(a20,i3.2,1x,a12)", date(1:20), when(4), date(21:)
+            show_date = .true.
+        end if
+    end function show_date
 
     subroutine usage (status)
         logical :: status
 
         if (status) then
-            write (*, *) "Try 'mydate --help' for more information."
-        else
             write (*, *) "Uso: mydate [OPÇÃO]... [+FORMATO]"
             write (*, *) " ou: mydate [-u|--utc|--universal] [MMDDhhmm[[CC]YY][.ss]]"
             write (*, *) "Display the current time in the given FORMAT, or set the system date."
@@ -105,9 +229,11 @@ contains
             write (*, *) "Mostra a hora local para 9AM próxima sexta-feira na costa oeste dos EUA"
             write (*, *) "  $ mydate --date='TZ='America/Los_Angeles' 09:00 next Fri'"
             write (*, *) ""          
+        else
+            write (*, *) "Try 'mydate --help' for more information."
         end if
-
+        
     end subroutine usage
-
-
+    
+    
 end program mydate
