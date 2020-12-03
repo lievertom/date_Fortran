@@ -12,6 +12,7 @@ program mydate
     integer :: option_specified_date = 0
     
     integer, dimension(8) :: when
+    integer, dimension(9) :: gmt
 
     character(len=32) :: optc = ""
     character(len=32) :: datestr = "" 
@@ -49,8 +50,18 @@ program mydate
             ! case ("-u")
             !     call getarg(2, set_datestr)
             !     set_date = .true.
+            case ("--help")
+                call usage(.true.)
+            case ("--version")
+                print *, "Beta"
+                print *, "Escrito por Lieverton"
+                call exit()
             case default
-                call usage(.false.)
+                if (optc(1:1) == "+") then
+                    new_format = optc(2:)
+                else
+                    call usage(.false.)
+                end if
         end select
 
         if (new_format /= "") then
@@ -59,7 +70,7 @@ program mydate
             end if
             my_format = new_format
         end if
-    END DO    
+    end do
 
     option_specified_date = merge(1, 0, datestr /= "") + merge(1, 0, batch_file /= "") + merge(1, 0, reference /= "")
 
@@ -71,26 +82,6 @@ program mydate
     if (set_date .and. option_specified_date > 0) then
         write (*, *) "the options to print and set the time may not be used together"
         call usage(.false.)
-    end if
-    
-    if (i < iargc()) then
-        if (i + 1 < iargc()) then
-            call getarg(i+1, error)
-            write (*, *) "extra operand ", error
-            call usage (.false.)
-        end if
-        call getarg(i, error)
-        if (index(error, '+') > 0) then
-            write (*, *) "multiple output formats specified"
-            my_format = error
-            i = i + 1
-        else if (set_date .or. option_specified_date > 0) then
-            call getarg(i, error)
-            write (*, *) "the argument "//error//" lacks a leading '+'"
-            write (*, *) "when using an option to specify date(s), any non-option"
-            write (*, *)  "argument must be a format string beginning with '+'"
-            call usage (.false.)
-        end if
     end if
 
     if (my_format == "") then
@@ -109,27 +100,197 @@ program mydate
             else
                 date = fdate()
                 call date_and_time (values=when)
-                when(4) = when(4) / 60
+                call gmtime(time(), gmt)
             end if
         end if
-        ok = ok .and. show_date (my_format, when, date)
+        ok = ok .and. show_date (my_format, when, date, gmt)
     end if
 
 
 contains
 
-    function show_date (my_format, when, date)
-        character(len=32) :: my_format, date
-        integer, dimension(8) :: when
+    function show_date (my_format, when, date, gmt)
+        implicit none
+        character(len=32), intent(in) :: my_format, date
+        integer, dimension(8), intent(in) :: when
+        integer, dimension(9), intent(in) :: gmt
+        character :: c
         logical :: show_date
-        if (my_format == "%a %b %e %H:%M:%S %Z %Y") then
-            print "(a20,i3.2,1x,a12)", date(1:20), when(4), date(21:)
-            show_date = .true.
-        end if
+        integer :: i = 1
+
+
+        do 
+            if (i > len_trim(my_format)) exit
+            c = my_format(i:i)
+            i = i + 1
+            if (c == "%") then
+                c = my_format(i:i)
+                call parser_format(c, when, date, gmt)
+                i = i + 1
+            else
+                write (*,"(a1)",advance="no") c
+            end if
+        end do
+        print *,
+        show_date = .true.
     end function show_date
 
+    subroutine parser_format (c, when, date, gmt)
+        implicit none
+        character, intent(in) :: c
+        character(len=32), intent(in) :: date
+        integer, dimension(8), intent(in) :: when
+        integer, dimension(9), intent(in) :: gmt
+
+        select case (c)
+            case ("%")
+                write (*,"(a1)",advance="no") "%"
+            case ("a")
+                write (*,"(a3)",advance="no") date(1:3)
+            case ("A")
+                call parser_day (date(1:3))
+            case ("b")
+                write (*,"(a3)",advance="no") date(5:7)
+            case ("B")
+                call parser_month (date(5:7))
+            case ("c")
+                write (*,"(a24)",advance="no") date
+            case ("C")
+                write (*,"(i2.2)",advance="no") when(1)/100 + merge(1,0,mod(when(1),100)>0)
+            case ("d")
+                write (*,"(i2.2)",advance="no") when(3)
+            case ("D")
+                write (*,"(i2.2,a1,i2.2,a1,a2)",advance="no") when(3), "/", when(2), "/", date(23:24)
+            case ("e")
+                write (*,"(a2)",advance="no") date(9:10)
+            case ("F")
+                write (*,"(i4.4,a1,i2.2,a1,i2.2)",advance="no") when(1), "-", when(2), "-", when(3)
+            case ("g")
+                write (*,"(a2)",advance="no") date(23:24)
+            case ("G")
+                write (*,"(a4)",advance="no") date(21:24)
+            case ("h")
+                write (*,"(a3)",advance="no") date(5:7)
+            case ("H")
+                write (*,"(a2)",advance="no") date(12:13)
+            case ("I")
+                write (*,"(i2.2)",advance="no") mod(when(5),12) + merge(12,0,mod(when(5),12)==0)
+            case ("j")
+                write (*,"(i3.3)",advance="no") gmt(8) + 1
+            case ("k")
+                write (*,"(i2)",advance="no") when(5)
+            case ("l")
+                write (*,"(i2)",advance="no") mod(when(5),12) + merge(12,0,mod(when(5),12)==0)
+            case ("m")
+                write (*,"(i2.2)",advance="no") when(2)
+            case ("M")
+                write (*,"(a2)",advance="no") date(15:16)
+            case ("n")
+                print *,
+            case ("N")
+                write (*,"(i3.3,a6)",advance="no") when(8), "000000"
+            case ("p")
+                ! 
+            case ("P")
+                !
+            case ("r")
+                write (*,"(i2.2)",advance="no") mod(when(5),12) + merge(12,0,mod(when(5),12)==0)
+                write (*,"(a1,i2.2,a1,i2.2)",advance="no") ":", when(6), ":", when(7)
+            case ("R")
+                write (*,"(a5)",advance="no") date(12:16)
+            case ("s")
+                ! 
+            case ("S")
+                write (*,"(a2)",advance="no") date(18:19)
+            case ("t")
+                write (*,"(a1)",advance="no") achar(9)
+            case ("T")
+                write (*,"(a8)",advance="no") date(12:19)
+            case ("u")
+                write (*,"(i1)",advance="no") gmt(7) + merge(7,0,gmt(7)==0)
+            case ("U")
+                write (*,"(i2.2)",advance="no") gmt(8)/7
+            case ("V")
+                write (*,"(i2.2)",advance="no") gmt(8)/7+1
+            case ("w")
+                write (*,"(i1)",advance="no") gmt(7)
+            case ("W")
+                write (*,"(i2.2)",advance="no") gmt(8)/7
+            case ("x")
+                write (*,"(i2.2,a1,i2.2,a1,a2)",advance="no") when(3), "/", when(2), "/", date(23:24)
+            case ("X")
+                write (*,"(a8)",advance="no") date(12:19)
+            case ("y")
+                write (*,"(a8)",advance="no") date(23:24)
+            case ("Y")
+                write (*,"(a4)",advance="no") date(21:24)
+            case ("z")
+                write (*,"(i4.3,a1)",advance="no") when(4)/6, "0"
+            case ("Z")
+                write (*,"(i3.2)",advance="no") when(4)/60
+        end select
+
+    end subroutine parser_format
+
+    subroutine parser_month (month)
+        implicit none
+        character(len=3),intent(in) :: month
+
+        select case (month)
+            case ("Jan")
+                write (*,"(a7)",advance="no") "January"
+            case ("Feb")
+                write (*,"(a8)",advance="no") "February"
+            case ("Mar")
+                write (*,"(a5)",advance="no") "March"
+            case ("Apr")
+                write (*,"(a5)",advance="no") "April"
+            case ("May")
+                write (*,"(a3)",advance="no") "May"
+            case ("Jun")
+                write (*,"(a4)",advance="no") "June"
+            case ("Jul")
+                write (*,"(a4)",advance="no") "July"
+            case ("Aug")
+                write (*,"(a6)",advance="no") "August"
+            case ("Sep")
+                write (*,"(a9)",advance="no") "September"
+            case ("Oct")
+                write (*,"(a7)",advance="no") "October"
+            case ("Nov")
+                write (*,"(a8)",advance="no") "November"
+            case ("Dec")
+                write (*,"(a8)",advance="no") "December"
+        end select
+
+    end subroutine parser_month
+
+    subroutine parser_day (day)
+        implicit none
+        character(len=3), intent(in) :: day
+    
+        select case (day)
+            case ("Mon")
+                write (*,"(a6)",advance="no") "Monday"
+            case ("Tue")
+                write (*,"(a7)",advance="no") "Tuesday"
+            case ("Wed")
+                write (*,"(a9)",advance="no") "Wednesday"
+            case ("Thu")
+                write (*,"(a8)",advance="no") "Thursday"
+            case ("Fri")
+                write (*,"(a6)",advance="no") "Friday"
+            case ("Sat")
+                write (*,"(a8)",advance="no") "Saturday"
+            case ("Sun")
+                write (*,"(a6)",advance="no") "Sunday"
+        end select
+
+    end subroutine parser_day
+
     subroutine usage (status)
-        logical :: status
+        implicit none
+        logical, intent(in) :: status
 
         if (status) then
             write (*, *) "Uso: mydate [OPÇÃO]... [+FORMATO]"
@@ -232,7 +393,7 @@ contains
         else
             write (*, *) "Try 'mydate --help' for more information."
         end if
-        
+        call exit()
     end subroutine usage
     
     
