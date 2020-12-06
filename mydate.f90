@@ -2,17 +2,22 @@ program mydate
 
     implicit none
 
+    integer, parameter :: EXIT_FAILURE = 1
+    integer, parameter :: EXIT_SUCCESS = 0
+
     character(*), parameter :: rfc_2822_format = "%a, %d %b %Y %H:%M:%S %z"
-    character(*), parameter :: utc = "TZ=UTC0 "
+    character(*), parameter :: TZ_UTC0 = "TZ=UTC0 "
     
     logical :: set_date = .false.
     logical :: ok = .false.
     
     integer :: i = 1
     integer :: option_specified_date = 0
+    integer :: when
     
-    integer, dimension(8) :: when
+    integer, dimension(8) :: ns
     integer, dimension(9) :: gmt
+    integer, dimension(13) :: file_stat
     
     character(len=32) :: optc = ""
     character(len=32) :: datestr = "" 
@@ -33,10 +38,6 @@ program mydate
     iso_8601_format(3) = "%Y-%m-%dT%H:%M:%S%z"
     iso_8601_format(4) = "%Y-%m-%dT%H:%M%z"
     iso_8601_format(5) = "%Y-%m-%dT%H:%M:%S,%N%z"
-
-    call fdate(date)
-    call gmtime(time(), gmt)
-    call date_and_time (values=when)
 
     do
         call get_command_argument(i, optc)
@@ -62,13 +63,13 @@ program mydate
                 set_date = .true.
                 i = i + 1
             case ("-u", "--utc", "--univesrsal")
-                if (when(4) /= 0) then
+                if (ns(4) /= 0) then
                     call get_command(optc)
-                    call execute_command_line(utc//optc)
+                    call execute_command_line(TZ_UTC0//optc)
                     call exit()
                 end if
             case ("--help")
-                call usage(.true.)
+                call usage(EXIT_SUCCESS)
             case ("--version")
                 print *, "Beta"
                 print *, "Escrito por Lieverton"
@@ -92,7 +93,7 @@ program mydate
                 else if (optc(1:1) == "+") then
                     new_format = optc(2:)
                 else
-                    call usage(.false.)
+                    call usage(EXIT_FAILURE)
                 end if
             end select
             
@@ -107,13 +108,13 @@ program mydate
         option_specified_date = merge(1, 0, datestr /= "") + merge(1, 0, batch_file /= "") + merge(1, 0, reference /= "")
         
         if (option_specified_date > 1) then
-            call usage(.false.)
+            call usage(EXIT_FAILURE)
             write (*, *) "the options to specify dates for printing are mutually exclusive"
         end if
         
         if (set_date .and. option_specified_date > 0) then
             write (*, *) "the options to print and set the time may not be used together"
-            call usage(.false.)
+            call usage(EXIT_FAILURE)
         end if
         
         if (my_format == "") then
@@ -121,13 +122,25 @@ program mydate
         end if
         
         if (batch_file /= "") then
-        print *, 'file'
-    else
-        ok = .true.
-        if (option_specified_date == 0 .and. .not.set_date) then
-            
-        end if
-        ok = ok .and. show_date (my_format, when, date, gmt)
+            print *, 'file'
+            call exit()
+        else
+            ok = .true.
+            if (option_specified_date > 0 .or. set_date) then
+                if (reference /= "") then
+                    call stat(reference, file_stat)
+                    when = file_stat(10)
+                    date = ctime(file_stat(10))     
+                end if
+            else
+                when = time()
+                date = fdate()
+            end if
+        call gmtime(when, gmt)
+        call date_and_time (values=ns)
+        gmt(6) = gmt(6) + 1900
+        gmt(5) = gmt(5) + 1
+        ok = ok .and. show_date (my_format, ns, date, gmt, when)
     end if
 
 contains
@@ -150,7 +163,7 @@ contains
                 print *, '  - “date”'
                 print *, '  - “seconds”'
                 print *, '  - “ns”'
-                call usage(.false.)
+                call usage(EXIT_FAILURE)
         end select
 
     end function rfc_3339_fmt
@@ -179,18 +192,19 @@ contains
                 print *, '  - “date”'
                 print *, '  - “seconds”'
                 print *, '  - “ns”'
-                call usage(.false.)
+                call usage(EXIT_FAILURE)
         end select
 
     end function iso_8601_fmt
  
-    function show_date (my_format, when, date, gmt)
+    function show_date (my_format, ns, date, gmt, when)
         implicit none
         character(len=32), intent(in) :: my_format, date
-        integer, dimension(8), intent(in) :: when
+        integer, dimension(8), intent(in) :: ns
         integer, dimension(9), intent(in) :: gmt
         character(len=4) :: c
         logical :: show_date
+        integer, intent(in) :: when
         integer :: i = 1
 
         do 
@@ -211,7 +225,7 @@ contains
                     c = my_format(i:i)
                     i = i + 1
                 end if
-                call parser_format(c, when, date, gmt)
+                call parser_format(c, ns, date, gmt, when)
             else
                 write (*,"(a1)",advance="no") c
             end if
@@ -220,12 +234,16 @@ contains
         show_date = .true.
     end function show_date
 
-    subroutine parser_format (c, when, date, gmt)
+    subroutine parser_format (c, ns, date, gmt, when)
         implicit none
         character(*), intent(in) :: c
         character(len=32), intent(in) :: date
-        integer, dimension(8), intent(in) :: when
+        integer, dimension(8), intent(in) :: ns
+        integer, intent(in) :: when
         integer, dimension(9), intent(in) :: gmt
+        character(5) :: zone;
+        
+        call date_and_time(zone=zone)
 
         select case (c)
             case ("%")
@@ -241,15 +259,15 @@ contains
             case ("c")
                 write (*,"(a24)",advance="no") date
             case ("C")
-                write (*,"(i2.2)",advance="no") when(1)/100 + merge(1,0,mod(when(1),100)>0)
+                write (*,"(i2.2)",advance="no") gmt(6)/100 + merge(1,0,mod(gmt(1),100)>0)
             case ("d")
-                write (*,"(i2.2)",advance="no") when(3)
+                write (*,"(i2.2)",advance="no") gmt(4)
             case ("D")
-                write (*,"(i2.2,a1,i2.2,a1,a2)",advance="no") when(3), "/", when(2), "/", date(23:24)
+                write (*,"(i2.2,a1,i2.2,a1,a2)",advance="no") gmt(4), "/", gmt(5), "/", date(23:24)
             case ("e")
                 write (*,"(a2)",advance="no") date(9:10)
             case ("F")
-                write (*,"(i4.4,a1,i2.2,a1,i2.2)",advance="no") when(1), "-", when(2), "-", when(3)
+                write (*,"(i4.4,a1,i2.2,a1,i2.2)",advance="no") gmt(6), "-", gmt(5), "-", gmt(4)
             case ("g")
                 write (*,"(a2)",advance="no") date(23:24)
             case ("G")
@@ -259,32 +277,32 @@ contains
             case ("H")
                 write (*,"(a2)",advance="no") date(12:13)
             case ("I")
-                write (*,"(i2.2)",advance="no") mod(when(5),12) + merge(12,0,mod(when(5),12)==0)
+                write (*,"(i2.2)",advance="no") mod(gmt(3),12) + merge(12,0,mod(gmt(3),12)==0)
             case ("j")
                 write (*,"(i3.3)",advance="no") gmt(8) + 1
             case ("k")
-                write (*,"(i2)",advance="no") when(5)
+                write (*,"(i2)",advance="no") gmt(3)
             case ("l")
-                write (*,"(i2)",advance="no") mod(when(5),12) + merge(12,0,mod(when(5),12)==0)
+                write (*,"(i2)",advance="no") mod(gmt(3),12) + merge(12,0,mod(gmt(3),12)==0)
             case ("m")
-                write (*,"(i2.2)",advance="no") when(2)
+                write (*,"(i2.2)",advance="no") gmt(5)
             case ("M")
                 write (*,"(a2)",advance="no") date(15:16)
             case ("n")
-                print *,
+                print *
             case ("N")
-                write (*,"(i3.3,a6)",advance="no") when(8), "000000"
+                write (*,"(i3.3,a6)",advance="no") ns(8), "000000"
             case ("p")
                 ! 
             case ("P")
                 !
             case ("r")
-                write (*,"(i2.2)",advance="no") mod(when(5),12) + merge(12,0,mod(when(5),12)==0)
-                write (*,"(a1,i2.2,a1,i2.2)",advance="no") ":", when(6), ":", when(7)
+                write (*,"(i2.2)",advance="no") mod(gmt(3),12) + merge(12,0,mod(gmt(3),12)==0)
+                write (*,"(a1,i2.2,a1,i2.2)",advance="no") ":", gmt(2), ":", gmt(7)
             case ("R")
                 write (*,"(a5)",advance="no") date(12:16)
             case ("s")
-                ! 
+                write (*,"(i10)",advance="no") when
             case ("S")
                 write (*,"(a2)",advance="no") date(18:19)
             case ("t")
@@ -302,7 +320,7 @@ contains
             case ("W")
                 write (*,"(i2.2)",advance="no") gmt(8)/7
             case ("x")
-                write (*,"(i2.2,a1,i2.2,a1,a2)",advance="no") when(3), "/", when(2), "/", date(23:24)
+                write (*,"(i2.2,a1,i2.2,a1,a2)",advance="no") gmt(4), "/", gmt(5), "/", date(23:24)
             case ("X")
                 write (*,"(a8)",advance="no") date(12:19)
             case ("y")
@@ -310,37 +328,21 @@ contains
             case ("Y")
                 write (*,"(a4)",advance="no") date(21:24)
             case ("z")
-                if (when(4) >= 0) then
-                    write (*,"(a1,i2.2,i2.2)",advance="no") "+", when(4)/60, mod(when(4), 60)
-                else
-                    write (*,"(i3.2,i2.2)",advance="no") when(4)/60, mod(when(4), 60)
-                end if
+                write (*,"(a5)",advance="no") zone
             case (":z")
-                if (when(4) >= 0) then
-                    write (*,"(a1,i2.2,a1,i2.2)",advance="no") "+", when(4)/60, ":", mod(when(4), 60)
-                else
-                    write (*,"(i3.2,a1,i2.2)",advance="no") when(4)/60, ":", mod(when(4), 60)
-                end if
+                write (*,"(a6)",advance="no") zone(1:3)//":"//zone(4:)
             case ("::z")
-                if (when(4) >= 0) then
-                    write (*,"(a1,i2.2,a1,i2.2,a3)",advance="no") "+", when(4)/60, ":", mod(when(4), 60), ":00"
-                else
-                    write (*,"(i3.2,a1,i2.2,a3)",advance="no") when(4)/60, ":", mod(when(4), 60), ":00"
-                end if
+                write (*,"(a9)",advance="no") zone(1:3)//":"//zone(4:)//":00"
             case (":::z")
-                if (when(4) >= 0) then
-                    write (*,"(a1,i2.2)",advance="no") "+", when(4)/60
-                else
-                    write (*,"(i3.2)",advance="no") when(4)/60
-                end if
-                if (mod(when(4), 60) > 0) then
-                    write (*,"(a1,i2.2)",advance="no") ":", modulo(when(4), 60)
+                write (*,"(a3)",advance="no") zone(1:3)
+                if (zone(4:5) /= "00") then
+                    write (*,"(a3)",advance="no") ":"//zone(4:)
                 end if
             case ("Z")
-                if (when(4) == 0) then
+                if (zone == "+0000") then
                     write (*,"(a3)",advance="no") "UTC"
                 else
-                    write (*,"(i3.2)",advance="no") when(4)/60
+                    write (*,"(a3)",advance="no") zone(1:3)
                 end if
             case default
                 write (*, "(a2)", advance="no") "%"//c
@@ -400,15 +402,17 @@ contains
                 write (*,"(a8)",advance="no") "Saturday"
             case ("Sun")
                 write (*,"(a6)",advance="no") "Sunday"
-        end select
-
-    end subroutine parser_day
-
-    subroutine usage (status)
-        implicit none
-        logical, intent(in) :: status
-
-        if (status) then
+            end select
+            
+        end subroutine parser_day
+        
+        subroutine usage (status)
+            implicit none
+            integer, intent(in) :: status
+            
+            if (status /= EXIT_SUCCESS) then
+                write (*, *) "Try './mydate --help' for more information."
+            else
             write (*, *) "Uso: mydate [OPÇÃO]... [+FORMATO]"
             write (*, *) " ou: mydate [-u|--utc|--universal] [MMDDhhmm[[CC]YY][.ss]]"
             write (*, *) "Display the current time in the given FORMAT, or set the system date."
@@ -506,10 +510,8 @@ contains
             write (*, *) "Mostra a hora local para 9AM próxima sexta-feira na costa oeste dos EUA"
             write (*, *) "  $ mydate --date='TZ='America/Los_Angeles' 09:00 next Fri'"
             write (*, *) ""          
-        else
-            write (*, *) "Try './mydate --help' for more information."
         end if
-        call exit()
+        call exit(status)
     end subroutine usage
     
 end program mydate
