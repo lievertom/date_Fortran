@@ -45,6 +45,7 @@ program mydate
         i = i + 1
 
         select case (optc)
+            case ("--")
             case ("-d")
                 call getarg(i, datestr)
                 i = i + 1
@@ -230,7 +231,7 @@ contains
                 write (*,"(a1)",advance="no") c
             end if
         end do
-        print *,
+        print *
         show_date = .true.
     end function show_date
 
