@@ -29,10 +29,10 @@ program mydate
     rfc_3339_format(2) = "%Y-%m-%d %H:%M:%S%:z"
     rfc_3339_format(3) = "%Y-%m-%d %H:%M:%S.%N%:z"
     
-    iso_8601_format(2) = "%Y-%m-%dT%H%:z"
-    iso_8601_format(3) = "%Y-%m-%dT%H:%M:%S%:z"
-    iso_8601_format(4) = "%Y-%m-%dT%H:%M%:z"
-    iso_8601_format(5) = "%Y-%m-%dT%H:%M:%S,%N%:z"
+    iso_8601_format(2) = "%Y-%m-%dT%H%z"
+    iso_8601_format(3) = "%Y-%m-%dT%H:%M:%S%z"
+    iso_8601_format(4) = "%Y-%m-%dT%H:%M%z"
+    iso_8601_format(5) = "%Y-%m-%dT%H:%M:%S,%N%z"
 
     call fdate(date)
     call gmtime(time(), gmt)
@@ -53,12 +53,14 @@ program mydate
             case ("-I", "--iso-8601")
                 new_format = iso_8601_format(1)
             case ("-r")
-                call getarg(2, reference)
+                call getarg(i, reference)
+                i = i + 1
             case ("-R", "--rfc-2822")
                 new_format = rfc_2822_format
             case ("-s")
-                call getarg(2, set_datestr)
+                call getarg(i, set_datestr)
                 set_date = .true.
+                i = i + 1
             case ("-u", "--utc", "--univesrsal")
                 if (when(4) /= 0) then
                     call get_command(optc)
@@ -72,7 +74,16 @@ program mydate
                 print *, "Escrito por Lieverton"
                 call exit()
             case default
-                if (optc(1:11) == "--rfc-3339=") then
+                if (optc(1:7) == "--date=") then
+                    datestr = optc(8:)
+                else if (optc(1:7) == "--file=") then
+                    batch_file = optc(8:)
+                else if (optc(1:6) == "--set=") then
+                    set_datestr = optc(7:)
+                    set_date = .true.
+                else if (optc(1:12) == "--reference=") then
+                    reference = optc(13:)
+                else if (optc(1:11) == "--rfc-3339=") then
                     new_format = rfc_3339_format(rfc_3339_fmt(trim(optc(12:))))
                 else if (optc(1:2) == "-I") then
                     new_format = iso_8601_format(iso_8601_fmt(trim(optc(3:))))
@@ -500,6 +511,5 @@ contains
         end if
         call exit()
     end subroutine usage
-    
     
 end program mydate
