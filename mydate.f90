@@ -2,18 +2,19 @@ program mydate
 
     implicit none
 
-    character(len=24), parameter :: rfc_2822_format = "%a, %d %b %Y %H:%M:%S %z"
-
+    character(*), parameter :: rfc_2822_format = "%a, %d %b %Y %H:%M:%S %z"
+    character(*), parameter :: utc = "TZ=UTC0 "
+    
+    
     logical :: set_date = .false.
-    ! logical :: valid_date = .false.
     logical :: ok = .false.
-
+    
     integer :: i = 1
     integer :: option_specified_date = 0
     
     integer, dimension(8) :: when
     integer, dimension(9) :: gmt
-
+    
     character(len=32) :: optc = ""
     character(len=32) :: datestr = "" 
     character(len=32) :: batch_file = ""
@@ -21,8 +22,18 @@ program mydate
     character(len=32) :: new_format = ""
     character(len=32) :: my_format = ""
     character(len=32) :: set_datestr = ""
-    character(len=32) :: error = ""
     character(len=32) :: date = ""
+    
+    character(22), dimension(5) :: iso_8601_format = "%Y-%m-%d"
+
+    iso_8601_format(2) = "%Y-%m-%dT%H%z"
+    iso_8601_format(3) = "%Y-%m-%dT%H:%M:%S%z"
+    iso_8601_format(4) = "%Y-%m-%dT%H:%M%z"
+    iso_8601_format(5) = "%Y-%m-%dT%H:%M:%S,%N%z"
+
+    call fdate(date)
+    call gmtime(time(), gmt)
+    call date_and_time (values=when)
 
     do
         call get_command_argument(i, optc)
@@ -38,18 +49,21 @@ program mydate
                 i = i + 1
             ! case ("--rfc-3339")
             !     call getarg(2, batch_file)
-            ! case ("-I")
-            !     call getarg(2, batch_file)
+            case ("-I", "--iso-8601")
+                new_format = iso_8601_format(1)
             case ("-r")
                 call getarg(2, reference)
-            case ("-R")
+            case ("-R", "--rfc-2822")
                 new_format = rfc_2822_format
             case ("-s")
                 call getarg(2, set_datestr)
                 set_date = .true.
-            ! case ("-u")
-            !     call getarg(2, set_datestr)
-            !     set_date = .true.
+            case ("-u", "--utc", "--univesrsal")
+                if (when(4) /= 0) then
+                    call get_command(optc)
+                    call execute_command_line(utc//optc)
+                    call exit()
+                end if
             case ("--help")
                 call usage(.true.)
             case ("--version")
@@ -57,7 +71,9 @@ program mydate
                 print *, "Escrito por Lieverton"
                 call exit()
             case default
-                if (optc(1:1) == "+") then
+                if (optc(1:2) == "-I") then
+                    new_format = iso_8601_format(iso_8601_fmt(trim(optc(3:))))
+                else if (optc(1:1) == "+") then
                     new_format = optc(2:)
                 else
                     call usage(.false.)
@@ -93,22 +109,42 @@ program mydate
     else
         ok = .true.
         if (option_specified_date == 0 .and. .not.set_date) then
-            if (i < iargc()) then
-                set_date = .true.
-                call getarg(iargc(), datestr)
-                ! valid_date = 
-            else
-                date = fdate()
-                call date_and_time (values=when)
-                call gmtime(time(), gmt)
-            end if
+            
         end if
         ok = ok .and. show_date (my_format, when, date, gmt)
     end if
 
-
 contains
 
+    function iso_8601_fmt(arg)
+        implicit none
+        character (*), intent(in) :: arg
+        integer :: iso_8601_fmt
+
+        select case (arg)
+            case ("date")
+                iso_8601_fmt = 1
+            case ("hours")
+                iso_8601_fmt = 2
+            case ("minutes")
+                iso_8601_fmt = 3
+            case ("seconds")
+                iso_8601_fmt = 4
+            case ("ns")
+                iso_8601_fmt = 5
+            case default
+                print *, 'date: “'//arg//'” is an invalid argument for “--iso-8061”'
+                print *, 'valid arguments are:'
+                print *, '  - “hours”'
+                print *, '  - “minuts”'
+                print *, '  - “date”'
+                print *, '  - “seconds”'
+                print *, '  - “ns”'
+                call usage(.false.)
+        end select
+
+    end function iso_8601_fmt
+ 
     function show_date (my_format, when, date, gmt)
         implicit none
         character(len=32), intent(in) :: my_format, date
@@ -117,7 +153,6 @@ contains
         character :: c
         logical :: show_date
         integer :: i = 1
-
 
         do 
             if (i > len_trim(my_format)) exit
@@ -225,9 +260,17 @@ contains
             case ("Y")
                 write (*,"(a4)",advance="no") date(21:24)
             case ("z")
-                write (*,"(i4.3,a1)",advance="no") when(4)/6, "0"
+                if (when(4) >= 0) then
+                    write (*,"(a1,i3.3,a1)",advance="no") "+", when(4)/6, "0"
+                else
+                    write (*,"(i4.3,a1)",advance="no") when(4)/6, "0"
+                end if
             case ("Z")
-                write (*,"(i3.2)",advance="no") when(4)/60
+                if (when(4) == 0) then
+                    write (*,"(a3)",advance="no") "UTC"
+                else
+                    write (*,"(i3.2)",advance="no") when(4)/60
+                end if
         end select
 
     end subroutine parser_format
@@ -391,7 +434,7 @@ contains
             write (*, *) "  $ mydate --date='TZ='America/Los_Angeles' 09:00 next Fri'"
             write (*, *) ""          
         else
-            write (*, *) "Try 'mydate --help' for more information."
+            write (*, *) "Try './mydate --help' for more information."
         end if
         call exit()
     end subroutine usage
