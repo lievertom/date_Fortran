@@ -5,7 +5,6 @@ program mydate
     character(*), parameter :: rfc_2822_format = "%a, %d %b %Y %H:%M:%S %z"
     character(*), parameter :: utc = "TZ=UTC0 "
     
-    
     logical :: set_date = .false.
     logical :: ok = .false.
     
@@ -24,8 +23,12 @@ program mydate
     character(len=32) :: set_datestr = ""
     character(len=32) :: date = ""
     
+    character(23), dimension(3) :: rfc_3339_format = "%Y-%m-%d"
     character(22), dimension(5) :: iso_8601_format = "%Y-%m-%d"
-
+    
+    rfc_3339_format(2) = "%Y-%m-%d %H:%M:%S%:z"
+    rfc_3339_format(3) = "%Y-%m-%d %H:%M:%S.%N%:z"
+    
     iso_8601_format(2) = "%Y-%m-%dT%H%z"
     iso_8601_format(3) = "%Y-%m-%dT%H:%M:%S%z"
     iso_8601_format(4) = "%Y-%m-%dT%H:%M%z"
@@ -47,8 +50,6 @@ program mydate
             case ("-f")
                 call getarg(i, batch_file)
                 i = i + 1
-            ! case ("--rfc-3339")
-            !     call getarg(2, batch_file)
             case ("-I", "--iso-8601")
                 new_format = iso_8601_format(1)
             case ("-r")
@@ -71,40 +72,44 @@ program mydate
                 print *, "Escrito por Lieverton"
                 call exit()
             case default
-                if (optc(1:2) == "-I") then
+                if (optc(1:11) == "--rfc-3339=") then
+                    new_format = rfc_3339_format(rfc_3339_fmt(trim(optc(12:))))
+                else if (optc(1:2) == "-I") then
                     new_format = iso_8601_format(iso_8601_fmt(trim(optc(3:))))
+                else if (optc(1:11) == "--iso-8601=") then
+                    new_format = iso_8601_format(iso_8601_fmt(trim(optc(12:))))
                 else if (optc(1:1) == "+") then
                     new_format = optc(2:)
                 else
                     call usage(.false.)
                 end if
-        end select
-
-        if (new_format /= "") then
-            if (my_format /= "") then
-                write (*, *) "multiple output formats specified"
+            end select
+            
+            if (new_format /= "") then
+                if (my_format /= "") then
+                    write (*, *) "multiple output formats specified"
+                end if
+                my_format = new_format
             end if
-            my_format = new_format
+        end do
+        
+        option_specified_date = merge(1, 0, datestr /= "") + merge(1, 0, batch_file /= "") + merge(1, 0, reference /= "")
+        
+        if (option_specified_date > 1) then
+            call usage(.false.)
+            write (*, *) "the options to specify dates for printing are mutually exclusive"
         end if
-    end do
-
-    option_specified_date = merge(1, 0, datestr /= "") + merge(1, 0, batch_file /= "") + merge(1, 0, reference /= "")
-
-    if (option_specified_date > 1) then
-        call usage(.false.)
-        write (*, *) "the options to specify dates for printing are mutually exclusive"
-    end if
-
-    if (set_date .and. option_specified_date > 0) then
-        write (*, *) "the options to print and set the time may not be used together"
-        call usage(.false.)
-    end if
-
-    if (my_format == "") then
-        my_format = "%a %b %e %H:%M:%S %Z %Y"
-    end if
-    
-    if (batch_file /= "") then
+        
+        if (set_date .and. option_specified_date > 0) then
+            write (*, *) "the options to print and set the time may not be used together"
+            call usage(.false.)
+        end if
+        
+        if (my_format == "") then
+            my_format = "%a %b %e %H:%M:%S %Z %Y"
+        end if
+        
+        if (batch_file /= "") then
         print *, 'file'
     else
         ok = .true.
@@ -115,6 +120,29 @@ program mydate
     end if
 
 contains
+
+    function rfc_3339_fmt(arg)
+        implicit none
+        character (*), intent(in) :: arg
+        integer :: rfc_3339_fmt
+
+        select case (arg)
+            case ("date")
+                rfc_3339_fmt = 1
+            case ("seconds")
+                rfc_3339_fmt = 2
+            case ("ns")
+                rfc_3339_fmt = 3
+            case default
+                print *, 'date: “'//arg//'” is an invalid argument for “--rfc-3339”'
+                print *, 'valid arguments are:'
+                print *, '  - “date”'
+                print *, '  - “seconds”'
+                print *, '  - “ns”'
+                call usage(.false.)
+        end select
+
+    end function rfc_3339_fmt
 
     function iso_8601_fmt(arg)
         implicit none
@@ -136,7 +164,7 @@ contains
                 print *, 'date: “'//arg//'” is an invalid argument for “--iso-8061”'
                 print *, 'valid arguments are:'
                 print *, '  - “hours”'
-                print *, '  - “minuts”'
+                print *, '  - “minutes”'
                 print *, '  - “date”'
                 print *, '  - “seconds”'
                 print *, '  - “ns”'
