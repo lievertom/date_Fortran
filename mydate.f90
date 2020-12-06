@@ -24,15 +24,15 @@ program mydate
     character(len=32) :: date = ""
     
     character(23), dimension(3) :: rfc_3339_format = "%Y-%m-%d"
-    character(22), dimension(5) :: iso_8601_format = "%Y-%m-%d"
+    character(23), dimension(5) :: iso_8601_format = "%Y-%m-%d"
     
     rfc_3339_format(2) = "%Y-%m-%d %H:%M:%S%:z"
     rfc_3339_format(3) = "%Y-%m-%d %H:%M:%S.%N%:z"
     
-    iso_8601_format(2) = "%Y-%m-%dT%H%z"
-    iso_8601_format(3) = "%Y-%m-%dT%H:%M:%S%z"
-    iso_8601_format(4) = "%Y-%m-%dT%H:%M%z"
-    iso_8601_format(5) = "%Y-%m-%dT%H:%M:%S,%N%z"
+    iso_8601_format(2) = "%Y-%m-%dT%H%:z"
+    iso_8601_format(3) = "%Y-%m-%dT%H:%M:%S%:z"
+    iso_8601_format(4) = "%Y-%m-%dT%H:%M%:z"
+    iso_8601_format(5) = "%Y-%m-%dT%H:%M:%S,%N%:z"
 
     call fdate(date)
     call gmtime(time(), gmt)
@@ -178,7 +178,7 @@ contains
         character(len=32), intent(in) :: my_format, date
         integer, dimension(8), intent(in) :: when
         integer, dimension(9), intent(in) :: gmt
-        character :: c
+        character(len=4) :: c
         logical :: show_date
         integer :: i = 1
 
@@ -187,9 +187,20 @@ contains
             c = my_format(i:i)
             i = i + 1
             if (c == "%") then
-                c = my_format(i:i)
+                if (my_format(i:i+3) == ":::z") then
+                    c = ":::z"
+                    i = i + 4
+                else if (my_format(i:i+2) == "::z") then
+                    c = "::z"
+                    i = i + 3
+                else if (my_format(i:i+1) == ":z") then
+                    c = ":z"
+                    i = i + 2
+                else 
+                    c = my_format(i:i)
+                    i = i + 1
+                end if
                 call parser_format(c, when, date, gmt)
-                i = i + 1
             else
                 write (*,"(a1)",advance="no") c
             end if
@@ -200,7 +211,7 @@ contains
 
     subroutine parser_format (c, when, date, gmt)
         implicit none
-        character, intent(in) :: c
+        character(*), intent(in) :: c
         character(len=32), intent(in) :: date
         integer, dimension(8), intent(in) :: when
         integer, dimension(9), intent(in) :: gmt
@@ -289,9 +300,30 @@ contains
                 write (*,"(a4)",advance="no") date(21:24)
             case ("z")
                 if (when(4) >= 0) then
-                    write (*,"(a1,i3.3,a1)",advance="no") "+", when(4)/6, "0"
+                    write (*,"(a1,i2.2,i2.2)",advance="no") "+", when(4)/60, mod(when(4), 60)
                 else
-                    write (*,"(i4.3,a1)",advance="no") when(4)/6, "0"
+                    write (*,"(i3.2,i2.2)",advance="no") when(4)/60, mod(when(4), 60)
+                end if
+            case (":z")
+                if (when(4) >= 0) then
+                    write (*,"(a1,i2.2,a1,i2.2)",advance="no") "+", when(4)/60, ":", mod(when(4), 60)
+                else
+                    write (*,"(i3.2,a1,i2.2)",advance="no") when(4)/60, ":", mod(when(4), 60)
+                end if
+            case ("::z")
+                if (when(4) >= 0) then
+                    write (*,"(a1,i2.2,a1,i2.2,a3)",advance="no") "+", when(4)/60, ":", mod(when(4), 60), ":00"
+                else
+                    write (*,"(i3.2,a1,i2.2,a3)",advance="no") when(4)/60, ":", mod(when(4), 60), ":00"
+                end if
+            case (":::z")
+                if (when(4) >= 0) then
+                    write (*,"(a1,i2.2)",advance="no") "+", when(4)/60
+                else
+                    write (*,"(i3.2)",advance="no") when(4)/60
+                end if
+                if (mod(when(4), 60) > 0) then
+                    write (*,"(a1,i2.2)",advance="no") ":", modulo(when(4), 60)
                 end if
             case ("Z")
                 if (when(4) == 0) then
@@ -299,6 +331,8 @@ contains
                 else
                     write (*,"(i3.2)",advance="no") when(4)/60
                 end if
+            case default
+                write (*, "(a2)", advance="no") "%"//c
         end select
 
     end subroutine parser_format
