@@ -36,10 +36,10 @@ program mydate
     rfc_3339_format(2) = "%Y-%m-%d %H:%M:%S%:z"
     rfc_3339_format(3) = "%Y-%m-%d %H:%M:%S.%N%:z"
     
-    iso_8601_format(2) = "%Y-%m-%dT%H%z"
-    iso_8601_format(3) = "%Y-%m-%dT%H:%M:%S%z"
-    iso_8601_format(4) = "%Y-%m-%dT%H:%M%z"
-    iso_8601_format(5) = "%Y-%m-%dT%H:%M:%S,%N%z"
+    iso_8601_format(2) = "%Y-%m-%dT%H%:z"
+    iso_8601_format(3) = "%Y-%m-%dT%H:%M:%S%:z"
+    iso_8601_format(4) = "%Y-%m-%dT%H:%M%:z"
+    iso_8601_format(5) = "%Y-%m-%dT%H:%M:%S,%N%:z"
 
     do
         call get_command_argument(i, optc)
@@ -49,33 +49,61 @@ program mydate
         select case (optc)
             case ("--")
                 call getarg(i, optc)
-                if (len_trim(optc) > 0) then
-                    print *, "date: invalid date “"//trim(optc)//"”"
+                if (i < iargc()) then
+                    call getarg(i+1, optc)
+                    print *, "date: extra operand '"//trim(optc)//"'"
+                    call usage(EXIT_FAILURE)
+                else if (len_trim(optc) > 0 .and. optc(1:1) /= "+") then
+                    print *, "date: invalid date '"//trim(optc)//"'"
                     call exit(EXIT_FAILURE)
                 end if
-            case ("-d")
+            case ("-d", "--date")
                 if (i > iargc()) then
-                    print *, "date : option required arguments -- 'd'" 
+                    if (optc == "-d") then
+                        print "(a41)", "date : option requires an argument -- 'd'" 
+                    else
+                        print "(a36)", "option '--date' requires an argument" 
+                    end if
                     call usage(EXIT_FAILURE)
                 end if
                 call getarg(i, datestr)
                 date_date = .true.
                 i = i + 1
-            case ("-f")
+            case ("-f", "--file")
+                if (i > iargc()) then
+                    if (optc == "-f") then
+                        print "(a41)", "date : option requires an argument -- 'f'" 
+                    else
+                        print "(a36)", "option '--file' requires an argument" 
+                    end if
+                    call usage(EXIT_FAILURE)
+                end if
                 call getarg(i, batch_file)
                 i = i + 1
             case ("-I", "--iso-8601")
                 new_format = iso_8601_format(1)
-            case ("-r")
+            case ("-r", "--reference")
                 if (i > iargc()) then
-                    print *, "date : option required arguments -- 'r'" 
+                    if (optc == "-r") then
+                        print "(a41)", "date : option requires an argument -- 'r'" 
+                    else
+                        print "(a41)", "option '--reference' requires an argument" 
+                    end if 
                     call usage(EXIT_FAILURE)
                 end if
                 call getarg(i, reference)
                 i = i + 1
             case ("-R", "--rfc-2822")
                 new_format = rfc_2822_format
-            case ("-s")
+            case ("-s", "--set")
+                if (i > iargc()) then
+                    if (optc == "-s") then
+                        print "(a41)", "date : option requires an argument -- 's'" 
+                    else
+                        print "(a35)", "option '--set' requires an argument" 
+                    end if 
+                    call usage(EXIT_FAILURE)
+                end if
                 call getarg(i, set_datestr)
                 set_date = .true.
                 i = i + 1
@@ -88,7 +116,7 @@ program mydate
             case ("--help")
                 call usage(EXIT_SUCCESS)
             case ("--version")
-                call version
+                call version()
             case default
                 if (optc(1:7) == "--date=") then
                     datestr = optc(8:)
@@ -114,7 +142,7 @@ program mydate
             
             if (new_format /= "") then
                 if (my_format /= "") then
-                    write (*, *) "multiple output formats specified"
+                    print "(a33)", "multiple output formats specified"
                 end if
                 my_format = new_format
             end if
@@ -124,11 +152,11 @@ program mydate
         
         if (option_specified_date > 1) then
             call usage(EXIT_FAILURE)
-            write (*, *) "the options to specify dates for printing are mutually exclusive"
+            print "(a64)", "the options to specify dates for printing are mutually exclusive"
         end if
         
         if (set_date .and. option_specified_date > 0) then
-            write (*, *) "the options to print and set the time may not be used together"
+            print "(a62)", "the options to print and set the time may not be used together"
             call usage(EXIT_FAILURE)
         end if
         
@@ -150,6 +178,10 @@ program mydate
                     date = ctime(file_stat(10))
                     call gmtime(when, gmt)
                 else
+                    if (set_date) then
+                        datestr = set_datestr
+                        print "(a46)", "date: cannot set date: Operation not permitted"
+                    end if
                     when = time()
                     date = fdate()                    
                     call gmtime(when, gmt)
@@ -238,10 +270,10 @@ contains
                 rfc_3339_fmt = 3
             case default
                 print *, 'date: “'//arg//'” is an invalid argument for “--rfc-3339”'
-                print *, 'valid arguments are:'
-                print *, '  - “date”'
-                print *, '  - “seconds”'
-                print *, '  - “ns”'
+                print "(a20)", 'valid arguments are:'
+                print "(a10)", '  - “date”'
+                print "(a13)", '  - “seconds”'
+                print "(a8)" , '  - “ns”'
                 call usage(EXIT_FAILURE)
         end select
 
@@ -265,12 +297,12 @@ contains
                 iso_8601_fmt = 5
             case default
                 print *, 'date: “'//arg//'” is an invalid argument for “--iso-8061”'
-                print *, 'valid arguments are:'
-                print *, '  - “hours”'
-                print *, '  - “minutes”'
-                print *, '  - “date”'
-                print *, '  - “seconds”'
-                print *, '  - “ns”'
+                print "(a20)", 'valid arguments are:'
+                print "(a11)", '  - “hours”'
+                print "(a13)", '  - “minutes”'
+                print "(a10)", '  - “date”'
+                print "(a13)", '  - “seconds”'
+                print "(a8)" , '  - “ns”'
                 call usage(EXIT_FAILURE)
         end select
 
