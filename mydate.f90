@@ -8,6 +8,8 @@ program mydate
     character(*), parameter :: rfc_2822_format = "%a, %d %b %Y %H:%M:%S %z"
     character(*), parameter :: TZ_UTC0 = "TZ=UTC0 "
     
+    logical :: valid_date = .true.
+    logical :: date_date = .false.
     logical :: set_date = .false.
     logical :: ok = .false.
     
@@ -15,11 +17,11 @@ program mydate
     integer :: option_specified_date = 0
     integer :: when
     
-    integer, dimension(8) :: ns
+    integer, dimension(8) :: date_time
     integer, dimension(9) :: gmt
     integer, dimension(13) :: file_stat
     
-    character(len=32) :: optc = ""
+    character(len=100) :: optc = ""
     character(len=32) :: datestr = "" 
     character(len=32) :: batch_file = ""
     character(len=32) :: reference = ""
@@ -46,8 +48,18 @@ program mydate
 
         select case (optc)
             case ("--")
+                call getarg(i, optc)
+                if (len_trim(optc) > 0) then
+                    print *, "date: invalid date “"//trim(optc)//"”"
+                    call exit(EXIT_FAILURE)
+                end if
             case ("-d")
+                if (i > iargc()) then
+                    print *, "date : option required arguments -- 'd'" 
+                    call usage(EXIT_FAILURE)
+                end if
                 call getarg(i, datestr)
+                date_date = .true.
                 i = i + 1
             case ("-f")
                 call getarg(i, batch_file)
@@ -55,6 +67,10 @@ program mydate
             case ("-I", "--iso-8601")
                 new_format = iso_8601_format(1)
             case ("-r")
+                if (i > iargc()) then
+                    print *, "date : option required arguments -- 'r'" 
+                    call usage(EXIT_FAILURE)
+                end if
                 call getarg(i, reference)
                 i = i + 1
             case ("-R", "--rfc-2822")
@@ -64,7 +80,7 @@ program mydate
                 set_date = .true.
                 i = i + 1
             case ("-u", "--utc", "--univesrsal")
-                if (ns(4) /= 0) then
+                if (date_time(4) /= 0) then
                     call get_command(optc)
                     call execute_command_line(TZ_UTC0//optc)
                     call exit()
@@ -72,9 +88,7 @@ program mydate
             case ("--help")
                 call usage(EXIT_SUCCESS)
             case ("--version")
-                print *, "Beta"
-                print *, "Escrito por Lieverton"
-                call exit()
+                call version
             case default
                 if (optc(1:7) == "--date=") then
                     datestr = optc(8:)
@@ -106,7 +120,7 @@ program mydate
             end if
         end do
         
-        option_specified_date = merge(1, 0, datestr /= "") + merge(1, 0, batch_file /= "") + merge(1, 0, reference /= "")
+        option_specified_date = merge(1, 0, date_date) + merge(1, 0, batch_file /= "") + merge(1, 0, reference /= "")
         
         if (option_specified_date > 1) then
             call usage(EXIT_FAILURE)
@@ -123,28 +137,92 @@ program mydate
         end if
         
         if (batch_file /= "") then
-            print *, 'file'
-            call exit()
+            call get_command(optc)
+            i = index(optc, "./mydate")
+            call execute_command_line(optc(1:i-1)//optc(i+8:))
         else
             ok = .true.
+            call date_and_time (values=date_time)
             if (option_specified_date > 0 .or. set_date) then
                 if (reference /= "") then
                     call stat(reference, file_stat)
                     when = file_stat(10)
-                    date = ctime(file_stat(10))     
+                    date = ctime(file_stat(10))
+                    call gmtime(when, gmt)
+                else
+                    when = time()
+                    date = fdate()                    
+                    call gmtime(when, gmt)
+                    valid_date = parse_datetime(when, date, gmt, datestr, date_time)
                 end if
             else
                 when = time()
                 date = fdate()
+                call gmtime(when, gmt)
             end if
-        call gmtime(when, gmt)
-        call date_and_time (values=ns)
-        gmt(6) = gmt(6) + 1900
-        gmt(5) = gmt(5) + 1
-        ok = ok .and. show_date (my_format, ns, date, gmt, when)
+        gmt(6) = gmt(6) + 1900  ! years since 1900 -> current year
+        gmt(5) = gmt(5) + 1     ! months 0..11 -> 1..12
+        ok = ok .and. show_date (my_format, date_time, date, gmt, when)
+        call exit(merge(EXIT_SUCCESS, EXIT_FAILURE, ok))
     end if
 
 contains
+
+    function parse_datetime (when, date, gmt, datestr, date_time)
+        implicit none
+        integer, intent(inout) :: when
+        character(*), intent(inout) :: date
+        integer, dimension(9), intent(inout) :: gmt
+        integer, dimension(8), intent(in) :: date_time
+        character(*), intent(in) :: datestr
+        logical :: parse_datetime
+        integer :: year, month, day
+
+        if (datestr == "") then
+            date = date(1:11)//"00:00:00"//date(20:)
+            gmt(3) = 0
+        else if ((datestr(5:5) == "-" .and. datestr(8:8) == "-") .or. (datestr(5:5) == "/" .and. datestr(8:8) == "/")) then
+            read(datestr(1:4), '(i4)') year
+            read(datestr(6:7), '(i2)') month
+            read(datestr(9:10), '(i2)') day
+            year = year - 1970
+            day = day - 1
+            select case (month)
+                case (1)
+                    when = 0
+                case (2)
+                    when = 2678400
+                case (3)
+                    when = 5097600
+                case (4)
+                    when = 7776000
+                case (5)
+                    when = 10368000
+                case (6)
+                    when = 13046400
+                case (7)
+                    when = 15638400
+                case (8)
+                    when = 18316800
+                case (9)
+                    when = 20995200
+                case (10)
+                    when = 23587200
+                case (11)
+                    when = 26265600
+                case (12)
+                    when = 28857600
+                case default
+                    parse_datetime = .true.
+                    return
+            end select  
+            when = when + (-60)*date_time(4) + 86400*day + 31536000*year
+            date = ctime(when)
+            call gmtime(when, gmt)
+        end if
+
+        parse_datetime = .true.
+    end function parse_datetime
 
     function rfc_3339_fmt(arg)
         implicit none
@@ -156,7 +234,7 @@ contains
                 rfc_3339_fmt = 1
             case ("seconds")
                 rfc_3339_fmt = 2
-            case ("ns")
+            case ("date_time")
                 rfc_3339_fmt = 3
             case default
                 print *, 'date: “'//arg//'” is an invalid argument for “--rfc-3339”'
@@ -183,7 +261,7 @@ contains
                 iso_8601_fmt = 3
             case ("seconds")
                 iso_8601_fmt = 4
-            case ("ns")
+            case ("date_time")
                 iso_8601_fmt = 5
             case default
                 print *, 'date: “'//arg//'” is an invalid argument for “--iso-8061”'
@@ -198,10 +276,10 @@ contains
 
     end function iso_8601_fmt
  
-    function show_date (my_format, ns, date, gmt, when)
+    function show_date (my_format, date_time, date, gmt, when)
         implicit none
-        character(len=32), intent(in) :: my_format, date
-        integer, dimension(8), intent(in) :: ns
+        character(*), intent(in) :: my_format, date
+        integer, dimension(8), intent(in) :: date_time
         integer, dimension(9), intent(in) :: gmt
         character(len=4) :: c
         logical :: show_date
@@ -226,7 +304,7 @@ contains
                     c = my_format(i:i)
                     i = i + 1
                 end if
-                call parser_format(c, ns, date, gmt, when)
+                call parser_format(c, date_time, date, gmt, when)
             else
                 write (*,"(a1)",advance="no") c
             end if
@@ -235,11 +313,11 @@ contains
         show_date = .true.
     end function show_date
 
-    subroutine parser_format (c, ns, date, gmt, when)
+    subroutine parser_format (c, date_time, date, gmt, when)
         implicit none
         character(*), intent(in) :: c
         character(len=32), intent(in) :: date
-        integer, dimension(8), intent(in) :: ns
+        integer, dimension(8), intent(in) :: date_time
         integer, intent(in) :: when
         integer, dimension(9), intent(in) :: gmt
         character(5) :: zone;
@@ -292,7 +370,7 @@ contains
             case ("n")
                 print *
             case ("N")
-                write (*,"(i3.3,a6)",advance="no") ns(8), "000000"
+                write (*,"(i3.3,a6)",advance="no") date_time(8), "000000"
             case ("p")
                 ! 
             case ("P")
@@ -405,113 +483,129 @@ contains
                 write (*,"(a6)",advance="no") "Sunday"
             end select
             
-        end subroutine parser_day
+    end subroutine parser_day
+
+    subroutine version ()
+        print "(a25)", "date (GNU coreutils) 8.30"
+        print "(a49)", "Copyright (C) 2018 Free Software Foundation, Inc."
+        print "(a79)", "License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>."
+        print "(a66)", "This is free software: you are free to change and redistribute it."
+        print "(a53)", "There is NO WARRANTY, to the extent permitted by law."
+        print *
+        print "(a27)", "Written by David MacKenzie."
         
-        subroutine usage (status)
-            implicit none
-            integer, intent(in) :: status
-            
-            if (status /= EXIT_SUCCESS) then
-                write (*, *) "Try './mydate --help' for more information."
-            else
-            write (*, *) "Uso: mydate [OPÇÃO]... [+FORMATO]"
-            write (*, *) " ou: mydate [-u|--utc|--universal] [MMDDhhmm[[CC]YY][.ss]]"
-            write (*, *) "Display the current time in the given FORMAT, or set the system date."
-            write (*, *) ""
-            write (*, *) "Mandatory arguments to long options are mandatory for short options too."
-            write (*, *) "  -d, --date=STRING         display time described by STRING, not 'now'"
-            write (*, *) "  -f, --file=DATEFILE        like --date; once for each line of DATEFILE"
-            write (*, *) "  -I[FMT], --iso-8601[=FMT]  output date/time in ISO 8601 format."
-            write (*, *) "                               FMT='date' for date only (the default),"
-            write (*, *) "                               'hours', 'minutes', 'seconds', or 'ns'"
-            write (*, *) "                               for date and time to the indicated precision."
-            write (*, *) "                               Example: 2006-08-14T02:34:56-0600"
-            write (*, *) "  -R, --rfc-2822             output date and time in RFC 2822 format."
-            write (*, *) "                               Example: Mon, 14 Aug 2006 02:34:56 -0600"
-            write (*, *) "      --rfc-3339=FMT         output date/time in RFC 3339 format."
-            write (*, *) "                               FMT='date', 'seconds', or 'ns'"
-            write (*, *) "                               for date and time to the indicated precision."
-            write (*, *) "                               Example: 2006-08-14 02:34:56-06:00"
-            write (*, *) "  -r, --reference=FILE       display the last modification time of FILE"
-            write (*, *) "  -s, --set=STRING           set time described by STRING"
-            write (*, *) "  -u, --utc, --universal     print or set Coordinated Universal Time (UTC)"
-            write (*, *) "      --help     mostra esta ajuda e finaliza"
-            write (*, *) "      --version  informa a versão e finaliza"
-            write (*, *) ""
-            write (*, *) "FORMATO controla a saída. As sequências interpretadas são:"
-            write (*, *) ""
-            write (*, *) "  %%   um % literal"
-            write (*, *) "  %a   nome abreviado do dia de semana da localidade (por exemplo, Sáb)"
-            write (*, *) "  %A   nome completo do dia de semana na localidade (por exemplo, Sábado)"
-            write (*, *) "  %b   nome abreviado do mês na localidade (por exemplo, Jan)"
-            write (*, *) "  %B   nome completo do mês na localidade (por exemplo, Janeiro)"
-            write (*, *) "  %c   data e hora na localidade (por exemplo, Sáb 08 Mar 2008 18:34:17 BRT)"
-            write (*, *) "  %C   século; como %Y, mas omite os dois últimos dígitos (por exemplo, 21)"
-            write (*, *) "  %d   dia do mês (por exemplo, 01)"
-            write (*, *) "  %D   data no formato estado-unidense; o mesmo que %d/%m/%y"
-            write (*, *) "  %e   dia do mês, preenchido com espaço; o mesmo que %_d"
-            write (*, *) "  %F   data completa; o mesmo que %Y-%m-%d"
-            write (*, *) "  %g   os últimos dois dígitos do ano do número ISO da semana (veja %G)"
-            write (*, *) "  %G   ano do número ISO da semana ISO (veja %V); normalmente útil só com %V"
-            write (*, *) "  %h   o mesmo que %b"
-            write (*, *) "  %H   hora (00..23)"
-            write (*, *) "  %I   hora (01..12)"
-            write (*, *) "  %j   dia do ano (001..366)"
-            write (*, *) "  %k   hora, com preenchimento de espaço ( 0..23); o mesmo que %_H"
-            write (*, *) "  %l   hora, com preenchimento de espaço ( 1..12); o mesmo que %_I"
-            write (*, *) "  %m   mês (01..12)"
-            write (*, *) "  %M   minuto (00..59)"
-            write (*, *) "  %n   um caractere de nova-linha"
-            write (*, *) "  %N   nanosegundos (000000000..999999999)"
-            write (*, *) "  %p   o equivalente na localidade para AM ou PM; em branco se desconhecido"
-            write (*, *) "  %P   como %p, mas em minúsculas"
-            write (*, *) "  %r   a hora no relógio de 12 horas na localidade (por exemplo, 11:11:04 PM)"
-            write (*, *) "  %R   hora e minuto no estilo 24 horas; o mesmo que %H:%M"
-            write (*, *) "  %s   segundos desde 1970-01-01 00:00:00 UTC"
-            write (*, *) "  %S   segundo (00..60)"
-            write (*, *) "  %t   uma tabulação"
-            write (*, *) "  %T   as horas; o mesmo que %H:%M:%S"
-            write (*, *) "  %u   dia da semana (1..7); 1 é segunda-feira"
-            write (*, *) "  %U   número da semana no ano, sendo domingo o início da semana (00..53)"
-            write (*, *) "  %V   número ISO da semana, sendo segunda-feira o início da semana (01..53)"
-            write (*, *) "  %w   dia da semana (0..6); 0 é domingo"
-            write (*, *) "  %W   número da semana no ano, sendo segunda-feira o início da semana (00..53)"
-            write (*, *) "  %x   representação da data na localidade (por exemplo, 31/12/99)"
-            write (*, *) "  %X   representação da hora na localidade (por exemplo, 23:13:48)"
-            write (*, *) "  %y   os últimos dois dígitos do ano (00..99)"
-            write (*, *) "  %Y   ano"
-            write (*, *) "  %z   fuso horário numérico +hhmm (por exemplo, -0400)"
-            write (*, *) "  %:z  fuso horário numérico +hh:mm (por exemplo, -04:00)"
-            write (*, *) "  %::z  fuso horário numérico +hh:mm:ss (por exemplo, -04:00:00)"
-            write (*, *) "  %:::z  fuso horário numérico com : para a precisão necessária"
-            write (*, *) "           (por exemplo, -04, +05:30)"
-            write (*, *) "  %Z   abreviação alfabética do fuso horário (por exemplo, BRT)"
-            write (*, *) ""
-            write (*, *) "Por padrão, campos numéricos de data são preenchidos com zeros."
-            write (*, *) "As seguintes opções sinalizadoras podem seguir '%':"
-            write (*, *) ""
-            write (*, *) "  -  (hífen) não preencher o campo"
-            write (*, *) "  _  (sublinhado) preencher com espaços"
-            write (*, *) "  0  (zero) preencher com zeros"
-            write (*, *) "  ^  usar letras maiúsculas, se possível"
-            write (*, *) "  #  usar capitalização oposta, se possível"
-            write (*, *) ""
-            write (*, *) "Depois de qualquer sinalizador pode haver uma largura de campo opcional,"
-            write (*, *) "como um número decimal; então, um modificador também opcional, que pode ser"
-            write (*, *) " E para usar as representações alternativas da localidade, se disponível, ou"
-            write (*, *) " O para usar os símbolos númericos alternativos da localidade, se disponível."
-            write (*, *) ""
-            write (*, *) "Exemplos:"
-            write (*, *) "Converte segundos desde o período (1970-01-01 UTC) até uma data"
-            write (*, *) "  $ mydate --date='@2147483647'"
-            write (*, *) ""
-            write (*, *) "Mostra a hora na costa oeste dos EUA (use tzselect(1) para encontrar TZ)"
-            write (*, *) "  $ TZ='America/Los_Angeles' mydate"
-            write (*, *) ""
-            write (*, *) "Mostra a hora local para 9AM próxima sexta-feira na costa oeste dos EUA"
-            write (*, *) "  $ mydate --date='TZ='America/Los_Angeles' 09:00 next Fri'"
-            write (*, *) ""          
+        call exit(EXIT_SUCCESS)
+    end subroutine version
+        
+    subroutine usage (status)
+        implicit none
+        integer, intent(in) :: status
+        
+        if (status /= EXIT_SUCCESS) then
+            write (*, *) "Try './mydate --help' for more information."
+        else
+            print "(a33)", "Usage: date [OPTION]... [+FORMAT]"
+            print "(a58)", "  or:  date [-u|--utc|--universal] [MMDDhhmm[[CC]YY][.ss]]"
+            print "(a69)", "Display the current time in the given FORMAT, or set the system date."
+            print *
+            print "(a72)", "Mandatory arguments to long options are mandatory for short options too."
+            print "(a72)", "  -d, --date=STRING          display time described by STRING, not 'now'"
+            print "(a72)", "  -f, --file=DATEFILE        like --date; once for each line of DATEFILE"
+            print "(a65)", "  -I[FMT], --iso-8601[=FMT]  output date/time in ISO 8601 format."
+            print "(a70)", "                               FMT='date' for date only (the default),"
+            print "(a69)", "                               'hours', 'minutes', 'seconds', or 'ns'"
+            print "(a76)", "                               for date and time to the indicated precision."
+            print "(a64)", "                               Example: 2006-08-14T02:34:56-0600"
+            print "(a69)", "  -R, --rfc-2822             output date and time in RFC 2822 format."
+            print "(a71)", "                               Example: Mon, 14 Aug 2006 02:34:56 -0600"
+            print "(a65)", "      --rfc-3339=FMT         output date/time in RFC 3339 format."
+            print "(a61)", "                               FMT='date', 'seconds', or 'ns'"
+            print "(a76)", "                               for date and time to the indicated precision."
+            print "(a65)", "                               Example: 2006-08-14 02:34:56-06:00"
+            print "(a71)", "  -r, --reference=FILE       display the last modification time of FILE"
+            print "(a57)", "  -s, --set=STRING           set time described by STRING"
+            print "(a74)", "  -u, --utc, --universal     print or set Coordinated Universal Time (UTC)"
+            print "(a43)", "      --help     display this help and exit"
+            print "(a52)", "      --version  output version information and exit"
+            print *
+            print "(a55)", "FORMAT controls the output.  Interpreted sequences are:"
+            print *
+            print "(a18)", "  %%   a literal %"
+            print "(a52)", "  %a   locale's abbreviated weekday name (e.g., Sun)"
+            print "(a48)", "  %A   locale's full weekday name (e.g., Sunday)"
+            print "(a50)", "  %b   locale's abbreviated month name (e.g., Jan)"
+            print "(a47)", "  %B   locale's full month name (e.g., January)"
+            print "(a62)", "  %c   locale's date and time (e.g., Thu Mar  3 23:05:25 2005)"
+            print "(a63)", "  %C   century; like %Y, except omit last two digits (e.g., 20)"
+            print "(a30)", "  %d   day of month (e.g., 01)"
+            print "(a29)", "  %D   date; same as %m/%d/%y"
+            print "(a46)", "  %e   day of month, space padded; same as %_d"
+            print "(a34)", "  %F   full date; same as %Y-%m-%d"
+            print "(a58)", "  %g   last two digits of year of ISO week number (see %G)"
+            print "(a69)", "  %G   year of ISO week number (see %V); normally useful only with %V"
+            print "(a17)", "  %h   same as %b"
+            print "(a20)", "  %H   hour (00..23)"
+            print "(a20)", "  %I   hour (01..12)"
+            print "(a29)", "  %j   day of year (001..366)"
+            print "(a47)", "  %k   hour, space padded ( 0..23); same as %_H"
+            print "(a47)", "  %l   hour, space padded ( 1..12); same as %_I"
+            print "(a21)", "  %m   month (01..12)"
+            print "(a22)", "  %M   minute (00..59)"
+            print "(a16)", "  %n   a newline"
+            print "(a41)", "  %N   nanoseconds (000000000..999999999)"
+            print "(a65)", "  %p   locale's equivalent of either AM or PM; blank if not known"
+            print "(a30)", "  %P   like %p, but lower case"
+            print "(a54)", "  %r   locale's 12-hour clock time (e.g., 11:11:04 PM)"
+            print "(a45)", "  %R   24-hour hour and minute; same as %H:%M"
+            print "(a44)", "  %s   seconds since 1970-01-01 00:00:00 UTC"
+            print "(a22)", "  %S   second (00..60)"
+            print "(a12)", "  %t   a tab"
+            print "(a29)", "  %T   time; same as %H:%M:%S"
+            print "(a38)", "  %u   day of week (1..7); 1 is Monday"
+            print "(a69)", "  %U   week number of year, with Sunday as first day of week (00..53)"
+            print "(a65)", "  %V   ISO week number, with Monday as first day of week (01..53)"
+            print "(a38)", "  %w   day of week (0..6); 0 is Sunday"
+            print "(a69)", "  %W   week number of year, with Monday as first day of week (00..53)"
+            print "(a52)", "  %x   locale's date representation (e.g., 12/31/99)"
+            print "(a52)", "  %X   locale's time representation (e.g., 23:13:48)"
+            print "(a39)", "  %y   last two digits of year (00..99)"
+            print "(a11)", "  %Y   year"
+            print "(a44)", "  %z   +hhmm numeric time zone (e.g., -0400)"
+            print "(a46)", "  %:z  +hh:mm numeric time zone (e.g., -04:00)"
+            print "(a53)", "  %::z  +hh:mm:ss numeric time zone (e.g., -04:00:00)"
+            print "(a76)", "  %:::z  numeric time zone with : to necessary precision (e.g., -04, +05:30)"
+            print "(a52)", "  %Z   alphabetic time zone abbreviation (e.g., EDT)"
+            print *
+            print "(a49)", "By default, date pads numeric fields with zeroes."
+            print "(a44)", "The following optional flags may follow '%':"
+            print *
+            print "(a34)", "  -  (hyphen) do not pad the field"
+            print "(a33)", "  _  (underscore) pad with spaces"
+            print "(a26)", "  0  (zero) pad with zeros"
+            print "(a31)", "  ^  use upper case if possible"
+            print "(a34)", "  #  use opposite case if possible"
+            print *
+            print "(a67)", "After any flags comes an optional field width, as a decimal number;"
+            print "(a42)", "then an optional modifier, which is either"
+            print "(a64)", "E to use the locale's alternate representations if available, or"
+            print "(a61)", "O to use the locale's alternate numeric symbols if available."
+            print *
+            print "(a9)", "Examples:"
+            print "(a58)", "Convert seconds since the epoch (1970-01-01 UTC) to a date"
+            print "(a29)", "  $ date --date='@2147483647'"
+            print *
+            print "(a70)", "Show the time on the west coast of the US (use tzselect(1) to find TZ)"
+            print "(a33)", "  $ TZ='America/Los_Angeles' date"
+            print *
+            print "(a67)", "Show the local time for 9AM next Friday on the west coast of the US"
+            print "(a59)", "  $ date --date='TZ=""America/Los_Angeles"" 09:00 next Fri'"
+            print *
+            print "(a67)", "GNU coreutils online help: <http://www.gnu.org/software/coreutils/>"
+            print "(a69)", "Report date translation bugs to <http://translationproject.org/team/>"
+            print "(a67)", "Full documentation at: <http://www.gnu.org/software/coreutils/date>"
+            print "(a60)", "or available locally via: info '(coreutils) date invocation'"     
         end if
+
         call exit(status)
     end subroutine usage
     
