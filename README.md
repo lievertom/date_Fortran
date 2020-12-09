@@ -1,4 +1,4 @@
-# date (Coreutils) em Fortran
+# Date em Fortran
 
 ## Proposta
 
