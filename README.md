@@ -70,4 +70,4 @@ sudo apt-get update && sudo apt-get install gfortran
 
 - [Documentação Gfortran](https://gcc.gnu.org/onlinedocs/gfortran/)
 
-- [Slides do Curso de Paradgmas](https://github.com/edsomjr/Paradigmas/tree/master/Programacao_Estruturada/slides)
+- [Slides do Curso de Paradigmas](https://github.com/edsomjr/Paradigmas/tree/master/Programacao_Estruturada/slides)
