@@ -1,24 +1,32 @@
 program mydate
 
     implicit none
+    
+    type when_type
+        integer :: sec
+        character(len=5) :: zone
+        character(len=32) :: date = ""
+        integer, dimension(9) :: gmt
+        integer, dimension(8) :: date_time
+    end type when_type
+    
+    type(when_type) :: when
 
     integer, parameter :: EXIT_FAILURE = 1
     integer, parameter :: EXIT_SUCCESS = 0
-
+    
     character(*), parameter :: rfc_2822_format = "%a, %d %b %Y %H:%M:%S %z"
     character(*), parameter :: TZ_UTC0 = "TZ=UTC0 "
     
     logical :: valid_date = .true.
     logical :: date_date = .false.
     logical :: set_date = .false.
-    logical :: ok = .false.
+    logical :: ok = .true.
     
     integer :: i = 1
     integer :: option_specified_date = 0
-    integer :: when
+    integer :: set_status
     
-    integer, dimension(8) :: date_time
-    integer, dimension(9) :: gmt
     integer, dimension(13) :: file_stat
     
     character(len=100) :: optc = ""
@@ -28,7 +36,6 @@ program mydate
     character(len=32) :: new_format = ""
     character(len=32) :: my_format = ""
     character(len=32) :: set_datestr = ""
-    character(len=32) :: date = ""
     
     character(23), dimension(3) :: rfc_3339_format = "%Y-%m-%d"
     character(23), dimension(5) :: iso_8601_format = "%Y-%m-%d"
@@ -40,6 +47,11 @@ program mydate
     iso_8601_format(3) = "%Y-%m-%dT%H:%M:%S%:z"
     iso_8601_format(4) = "%Y-%m-%dT%H:%M%:z"
     iso_8601_format(5) = "%Y-%m-%dT%H:%M:%S,%N%:z"
+
+    when%sec = time()
+    call fdate(when%date)
+    call gmtime(when%sec, when%gmt)
+    call date_and_time (values=when%date_time, zone=when%zone)
 
     do
         call get_command_argument(i, optc)
@@ -108,7 +120,7 @@ program mydate
                 set_date = .true.
                 i = i + 1
             case ("-u", "--utc", "--univesrsal")
-                if (date_time(4) /= 0) then
+                if (when%zone /= "+0000") then
                     call get_command(optc)
                     call execute_command_line(TZ_UTC0//optc)
                     call exit()
@@ -138,123 +150,190 @@ program mydate
                 else
                     call usage(EXIT_FAILURE)
                 end if
-            end select
+        end select
             
-            if (new_format /= "") then
-                if (my_format /= "") then
-                    print "(a33)", "multiple output formats specified"
-                end if
-                my_format = new_format
+        if (new_format /= "") then
+            if (my_format /= "") then
+                print "(a33)", "multiple output formats specified"
             end if
-        end do
-        
-        option_specified_date = merge(1, 0, date_date) + merge(1, 0, batch_file /= "") + merge(1, 0, reference /= "")
-        
-        if (option_specified_date > 1) then
-            call usage(EXIT_FAILURE)
-            print "(a64)", "the options to specify dates for printing are mutually exclusive"
+            my_format = new_format
         end if
+    end do
         
-        if (set_date .and. option_specified_date > 0) then
-            print "(a62)", "the options to print and set the time may not be used together"
-            call usage(EXIT_FAILURE)
-        end if
-        
-        if (my_format == "") then
-            my_format = "%a %b %e %H:%M:%S %Z %Y"
-        end if
-        
-        if (batch_file /= "") then
-            call get_command(optc)
-            i = index(optc, "./mydate")
-            call execute_command_line(optc(1:i-1)//optc(i+8:))
-        else
-            ok = .true.
-            call date_and_time (values=date_time)
-            if (option_specified_date > 0 .or. set_date) then
-                if (reference /= "") then
-                    call stat(reference, file_stat)
-                    when = file_stat(10)
-                    date = ctime(file_stat(10))
-                    call gmtime(when, gmt)
-                else
-                    if (set_date) then
-                        datestr = set_datestr
-                        print "(a46)", "date: cannot set date: Operation not permitted"
-                    end if
-                    when = time()
-                    date = fdate()                    
-                    call gmtime(when, gmt)
-                    valid_date = parse_datetime(when, date, gmt, datestr, date_time)
-                end if
-            else
-                when = time()
-                date = fdate()
-                call gmtime(when, gmt)
-            end if
-        gmt(6) = gmt(6) + 1900  ! years since 1900 -> current year
-        gmt(5) = gmt(5) + 1     ! months 0..11 -> 1..12
-        ok = ok .and. show_date (my_format, date_time, date, gmt, when)
-        call exit(merge(EXIT_SUCCESS, EXIT_FAILURE, ok))
+    option_specified_date = merge(1, 0, date_date) + merge(1, 0, batch_file /= "") + merge(1, 0, reference /= "")
+    
+    if (option_specified_date > 1) then
+        call usage(EXIT_FAILURE)
+        print "(a64)", "the options to specify dates for printing are mutually exclusive"
     end if
+    
+    if (set_date .and. option_specified_date > 0) then
+        print "(a62)", "the options to print and set the time may not be used together"
+        call usage(EXIT_FAILURE)
+    end if
+    
+    if (my_format == "") then
+        my_format = "%a %b %e %H:%M:%S %Z %Y"
+    end if
+    
+    if (batch_file /= "") then
+        ok = batch_convert (batch_file, my_format, when)
+    else
+        if (option_specified_date > 0 .or. set_date) then
+            if (reference /= "") then
+                call stat(reference, file_stat)
+                when%sec = file_stat(10)
+                When%date = ctime(file_stat(10))
+                call gmtime(file_stat(10), when%gmt)
+            else
+                if (set_datestr /= "") then
+                    datestr = set_datestr
+                end if
+                valid_date = parse_datetime(datestr, when)
+            end if
+        end if
+        if (.not.valid_date) then
+            print *, "date: invalid date '"//trim(datestr)//"'"
+            call exit(EXIT_FAILURE)
+        end if
+        if (set_date) then  !simulates set_date return
+            set_status = chmod("/dev/log", "u+r")  
+            if (set_status /= 0) then  !check permission
+                print "(a46)", "date: cannot set date: Operation not permitted"
+            end if
+        end if
+        ok = ok .and. show_date (my_format, when)
+    end if
+    call exit(merge(EXIT_SUCCESS, EXIT_FAILURE, ok))
+    
+    contains
 
-contains
-
-    function parse_datetime (when, date, gmt, datestr, date_time)
+    function parse_datetime (datestr, when)
         implicit none
-        integer, intent(inout) :: when
-        character(*), intent(inout) :: date
-        integer, dimension(9), intent(inout) :: gmt
-        integer, dimension(8), intent(in) :: date_time
         character(*), intent(in) :: datestr
+        type(when_type), intent(inout) :: when
         logical :: parse_datetime
         integer :: year, month, day
 
-        if (datestr == "") then
-            date = date(1:11)//"00:00:00"//date(20:)
-            gmt(3) = 0
+        if (datestr == "" .or. datestr == "-") then
+            when%date = when%date(1:11)//"00:00:00"//when%date(20:)
+            when%gmt(3) = 0
         else if ((datestr(5:5) == "-" .and. datestr(8:8) == "-") .or. (datestr(5:5) == "/" .and. datestr(8:8) == "/")) then
             read(datestr(1:4), '(i4)') year
             read(datestr(6:7), '(i2)') month
-            read(datestr(9:10), '(i2)') day
-            year = year - 1970
-            day = day - 1
+            read(datestr(9:), '(i2)') day
+            if (year < 0 .or. day < 1 .or. day > 31) then
+                parse_datetime = .false.
+                return
+            end if
             select case (month)
                 case (1)
-                    when = 0
+                    when%sec = 0
                 case (2)
-                    when = 2678400
+                    if ((day > 28 .and. mod(year, 4) > 0) .or. day > 29) then
+                        parse_datetime = .false.
+                        return
+                    end if
+                    when%sec = 2678400
                 case (3)
-                    when = 5097600
+                    when%sec = 5097600
                 case (4)
-                    when = 7776000
+                    if (day > 30) then
+                        parse_datetime = .false.
+                        return
+                    end if
+                    when%sec = 7776000
                 case (5)
-                    when = 10368000
+                    when%sec = 10368000
                 case (6)
-                    when = 13046400
+                    if (day > 30) then
+                        parse_datetime = .false.
+                        return
+                    end if
+                    when%sec = 13046400
                 case (7)
-                    when = 15638400
+                    when%sec = 15638400
                 case (8)
-                    when = 18316800
+                    when%sec = 18316800
                 case (9)
-                    when = 20995200
+                    if (day > 30) then
+                        parse_datetime = .false.
+                        return
+                    end if
+                    when%sec = 20995200
                 case (10)
-                    when = 23587200
+                    when%sec = 23587200
                 case (11)
-                    when = 26265600
+                    if (day > 30) then
+                        parse_datetime = .false.
+                        return
+                    end if
+                    when%sec = 26265600
                 case (12)
-                    when = 28857600
+                    when%sec = 28857600
                 case default
-                    parse_datetime = .true.
+                    parse_datetime = .false.
                     return
-            end select  
-            when = when + (-60)*date_time(4) + 86400*day + 31536000*year
-            date = ctime(when)
-            call gmtime(when, gmt)
+            end select
+
+            year = year - 1970
+            day = day - 1
+
+            if (year >= 0) then
+                day = day + (year+2)/4 - merge(1,0,modulo(year+2,4)==0 .and. month < 3)
+            else
+                day = day + (year-2)/4 + merge(1,0,modulo(year+2,4)==0 .and. month > 2)
+            end if 
+
+            when%sec = when%sec + (-60)*when%date_time(4) + 86400*day + 31536000*year
+            when%date = ctime(when%sec)
+            call gmtime(when%sec, when%gmt)
+        else
+            parse_datetime = .false.
+            return
         end if
 
         parse_datetime = .true.
     end function parse_datetime
+
+    function batch_convert (input_filename, my_format, when)
+        implicit none
+        character(*), intent(in) :: input_filename
+        character(*), intent(in) :: my_format
+        type(when_type), intent(inout) :: when
+        logical :: batch_convert, valid_date
+        character(len=32) :: line = ""
+        integer :: error, in_stream
+        
+        batch_convert = .true.
+
+        if (input_filename == "-") then
+            in_stream = 5
+        else
+            in_stream = 1
+            open(unit=in_stream, file=input_filename, err=100, status="old",action="read", iostat=error)
+100         if(error > 0) then
+                print *,  "date: "//trim(input_filename)//": No such file or directory"
+                call exit(EXIT_FAILURE)
+            end if
+        end if
+        do
+            read(in_stream, *, iostat = error) line
+            if (error /= 0) exit
+            valid_date = parse_datetime (line, when)
+            if (.not.valid_date) then
+                print *, "date: invalid date '"//trim(line)//"'"
+                batch_convert = .false.
+            else 
+                batch_convert =  show_date (my_format, when)
+            end if
+        end do
+        
+        if (in_stream == 1) then
+            close(1)
+        end if
+
+    end function batch_convert
 
     function rfc_3339_fmt(arg)
         implicit none
@@ -308,16 +387,14 @@ contains
 
     end function iso_8601_fmt
  
-    function show_date (my_format, date_time, date, gmt, when)
+    function show_date (my_format, when)
         implicit none
-        character(*), intent(in) :: my_format, date
-        integer, dimension(8), intent(in) :: date_time
-        integer, dimension(9), intent(in) :: gmt
+        character(*), intent(in) :: my_format
+        type(when_type), intent(inout) :: when
+        logical :: show_date  
         character(len=4) :: c
-        logical :: show_date
-        integer, intent(in) :: when
-        integer :: i = 1
-
+        integer :: i
+        i = 1
         do 
             if (i > len_trim(my_format)) exit
             c = my_format(i:i)
@@ -336,7 +413,7 @@ contains
                     c = my_format(i:i)
                     i = i + 1
                 end if
-                call parser_format(c, date_time, date, gmt, when)
+                call parser_format(c, when)
             else
                 write (*,"(a1)",advance="no") c
             end if
@@ -345,115 +422,112 @@ contains
         show_date = .true.
     end function show_date
 
-    subroutine parser_format (c, date_time, date, gmt, when)
+    subroutine parser_format (c, when)
         implicit none
         character(*), intent(in) :: c
-        character(len=32), intent(in) :: date
-        integer, dimension(8), intent(in) :: date_time
-        integer, intent(in) :: when
-        integer, dimension(9), intent(in) :: gmt
-        character(5) :: zone;
+        type(when_type), intent(inout) :: when
         
-        call date_and_time(zone=zone)
+        when%gmt(6) = when%gmt(6) + 1900  ! years since 1900 -> current year
+        when%gmt(5) = when%gmt(5) + 1     ! months 0..11 -> 1..12
 
         select case (c)
             case ("%")
                 write (*,"(a1)",advance="no") "%"
             case ("a")
-                write (*,"(a3)",advance="no") date(1:3)
+                write (*,"(a3)",advance="no") when%date(1:3)
             case ("A")
-                call parser_day (date(1:3))
+                call parser_day (when%date(1:3))
             case ("b")
-                write (*,"(a3)",advance="no") date(5:7)
+                write (*,"(a3)",advance="no") when%date(5:7)
             case ("B")
-                call parser_month (date(5:7))
+                call parser_month (when%date(5:7))
             case ("c")
-                write (*,"(a24)",advance="no") date
+                write (*,"(a24)",advance="no") when%date
             case ("C")
-                write (*,"(i2.2)",advance="no") gmt(6)/100 + merge(1,0,mod(gmt(1),100)>0)
+                write (*,"(i2.2)",advance="no") when%gmt(6)/100 + merge(1,0,mod(when%gmt(1),100)>0)
             case ("d")
-                write (*,"(i2.2)",advance="no") gmt(4)
+                write (*,"(i2.2)",advance="no") when%gmt(4)
             case ("D")
-                write (*,"(i2.2,a1,i2.2,a1,a2)",advance="no") gmt(4), "/", gmt(5), "/", date(23:24)
+                write (*,"(i2.2,a1,i2.2,a1,a2)",advance="no") when%gmt(4), "/", when%gmt(5), "/", when%date(23:24)
             case ("e")
-                write (*,"(a2)",advance="no") date(9:10)
+                write (*,"(a2)",advance="no") when%date(9:10)
             case ("F")
-                write (*,"(i4.4,a1,i2.2,a1,i2.2)",advance="no") gmt(6), "-", gmt(5), "-", gmt(4)
+                write (*,"(i4.4,a1,i2.2,a1,i2.2)",advance="no") when%gmt(6), "-", when%gmt(5), "-", when%gmt(4)
             case ("g")
-                write (*,"(a2)",advance="no") date(23:24)
+                write (*,"(a2)",advance="no") when%date(23:24)
             case ("G")
-                write (*,"(a4)",advance="no") date(21:24)
+                write (*,"(a4)",advance="no") when%date(21:24)
             case ("h")
-                write (*,"(a3)",advance="no") date(5:7)
+                write (*,"(a3)",advance="no") when%date(5:7)
             case ("H")
-                write (*,"(a2)",advance="no") date(12:13)
+                write (*,"(a2)",advance="no") when%date(12:13)
             case ("I")
-                write (*,"(i2.2)",advance="no") mod(gmt(3),12) + merge(12,0,mod(gmt(3),12)==0)
+                write (*,"(i2.2)",advance="no") mod(when%gmt(3),12) + merge(12,0,mod(when%gmt(3),12)==0)
             case ("j")
-                write (*,"(i3.3)",advance="no") gmt(8) + 1
+                write (*,"(i3.3)",advance="no") when%gmt(8) + 1
             case ("k")
-                write (*,"(i2)",advance="no") gmt(3)
+                write (*,"(i2)",advance="no") when%gmt(3)
             case ("l")
-                write (*,"(i2)",advance="no") mod(gmt(3),12) + merge(12,0,mod(gmt(3),12)==0)
+                write (*,"(i2)",advance="no") mod(when%gmt(3),12) + merge(12,0,mod(when%gmt(3),12)==0)
             case ("m")
-                write (*,"(i2.2)",advance="no") gmt(5)
+                write (*,"(i2.2)",advance="no") when%gmt(5)
             case ("M")
-                write (*,"(a2)",advance="no") date(15:16)
+                write (*,"(a2)",advance="no") when%date(15:16)
             case ("n")
                 print *
             case ("N")
-                write (*,"(i3.3,a6)",advance="no") date_time(8), "000000"
+                write (*,"(i3.3,a6)",advance="no") when%date_time(8), "000000"
             case ("p")
                 ! 
             case ("P")
                 !
             case ("r")
-                write (*,"(i2.2)",advance="no") mod(gmt(3),12) + merge(12,0,mod(gmt(3),12)==0)
-                write (*,"(a1,i2.2,a1,i2.2)",advance="no") ":", gmt(2), ":", gmt(7)
+                write (*,"(i2.2)",advance="no") mod(when%gmt(3),12) + merge(12,0,mod(when%gmt(3),12)==0)
+                write (*,"(a1,i2.2,a1,i2.2)",advance="no") ":", when%gmt(2), ":", when%gmt(7)
             case ("R")
-                write (*,"(a5)",advance="no") date(12:16)
+                write (*,"(a5)",advance="no") when%date(12:16)
             case ("s")
                 write (*,"(i10)",advance="no") when
             case ("S")
-                write (*,"(a2)",advance="no") date(18:19)
+                write (*,"(a2)",advance="no") when%date(18:19)
             case ("t")
                 write (*,"(a1)",advance="no") achar(9)
             case ("T")
-                write (*,"(a8)",advance="no") date(12:19)
+                write (*,"(a8)",advance="no") when%date(12:19)
             case ("u")
-                write (*,"(i1)",advance="no") gmt(7) + merge(7,0,gmt(7)==0)
+                write (*,"(i1)",advance="no") when%gmt(7) + merge(7,0,when%gmt(7)==0)
             case ("U")
-                write (*,"(i2.2)",advance="no") gmt(8)/7
+                write (*,"(i2.2)",advance="no") when%gmt(8)/7
             case ("V")
-                write (*,"(i2.2)",advance="no") gmt(8)/7+1
+                write (*,"(i2.2)",advance="no") when%gmt(8)/7+1
             case ("w")
-                write (*,"(i1)",advance="no") gmt(7)
+                write (*,"(i1)",advance="no") when%gmt(7)
             case ("W")
-                write (*,"(i2.2)",advance="no") gmt(8)/7
+                write (*,"(i2.2)",advance="no") when%gmt(8)/7
             case ("x")
-                write (*,"(i2.2,a1,i2.2,a1,a2)",advance="no") gmt(4), "/", gmt(5), "/", date(23:24)
+                write (*,"(i2.2,a1,i2.2,a1,a2)",advance="no") when%gmt(4), "/", when%gmt(5), "/", when%date(23:24)
             case ("X")
-                write (*,"(a8)",advance="no") date(12:19)
+                write (*,"(a8)",advance="no") when%date(12:19)
             case ("y")
-                write (*,"(a8)",advance="no") date(23:24)
+                write (*,"(a8)",advance="no") when%date(23:24)
             case ("Y")
-                write (*,"(a4)",advance="no") date(21:24)
+                write (*,"(a4)",advance="no") when%date(21:24)
             case ("z")
-                write (*,"(a5)",advance="no") zone
+                write (*,"(a5)",advance="no") when%zone
             case (":z")
-                write (*,"(a6)",advance="no") zone(1:3)//":"//zone(4:)
+                write (*,"(a6)",advance="no") when%zone(1:3)//":"//when%zone(4:)
             case ("::z")
-                write (*,"(a9)",advance="no") zone(1:3)//":"//zone(4:)//":00"
+                write (*,"(a9)",advance="no") when%zone(1:3)//":"//when%zone(4:)//":00"
             case (":::z")
-                write (*,"(a3)",advance="no") zone(1:3)
-                if (zone(4:5) /= "00") then
-                    write (*,"(a3)",advance="no") ":"//zone(4:)
+                write (*,"(a3)",advance="no") when%zone(1:3)
+                if (when%zone(4:5) /= "00") then
+                    write (*,"(a3)",advance="no") ":"//when%zone(4:)
                 end if
             case ("Z")
-                if (zone == "+0000") then
+                if (when%zone == "+0000") then
                     write (*,"(a3)",advance="no") "UTC"
                 else
-                    write (*,"(a3)",advance="no") zone(1:3)
+                    write (*,"(a3)",advance="no") when%zone(1:3)
                 end if
             case default
                 write (*, "(a2)", advance="no") "%"//c
