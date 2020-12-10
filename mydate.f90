@@ -15,8 +15,6 @@ program mydate
     integer, parameter :: EXIT_FAILURE = 1
     integer, parameter :: EXIT_SUCCESS = 0
     
-    character(*), parameter :: rfc_2822_format = "%a, %d %b %Y %H:%M:%S %z"
-    character(*), parameter :: TZ_UTC0 = "TZ=UTC0 "
     
     logical :: valid_date = .true.
     logical :: date_date = .false.
@@ -37,6 +35,8 @@ program mydate
     character(len=32) :: my_format = ""
     character(len=32) :: set_datestr = ""
     
+    character(*), parameter :: TZ_UTC0 = "TZ=UTC0 "
+    character(*), parameter :: rfc_2822_format = "%a, %d %b %Y %H:%M:%S %z"
     character(23), dimension(3) :: rfc_3339_format = "%Y-%m-%d"
     character(23), dimension(5) :: iso_8601_format = "%Y-%m-%d"
     
@@ -219,49 +219,6 @@ program mydate
     
     contains
 
-    function extract_date (year, month,day, i, j, datestr)
-        integer, intent(inout) :: year 
-        integer, intent(inout) :: month 
-        integer, intent(inout) :: day
-        integer, intent(in) :: i 
-        integer, intent(inout) :: j
-        character(*), intent(in) :: datestr
-        integer :: error
-        logical :: extract_date
-        
-        j = j + i
-        if (i < 2) then
-            extract_date = .false.
-            return
-        else if (i == j) then
-            year = 0
-            read(datestr(1:i-1), '(i5)', err=20, iostat=error) month 
-            read(datestr(i+1:), '(i5)', err=20, iostat=error) day
-        else
-            read(datestr(1:i-1), '(i5)', err=20, iostat=error) year 
-            read(datestr(i+1:j-1), '(i5)', err=20, iostat=error) month 
-            read(datestr(j+1:), '(i5)', err=20, iostat=error) day
-        end if
-
-        if (year < 0 .or. day < 1 .or. day > 31) then
-            extract_date = .false.
-            return
-        end if
-
-        if (year < 69) then
-            year = year + 2000
-        else if (year < 100) then
-            year = year + 1900
-        end if
-
-20      if (error /= 0) then
-            extract_date = .false.
-        else
-            extract_date = .true.
-        end if
-
-    end function extract_date
-
     function parse_datetime (datestr, when)
         implicit none
         character(*), intent(in) :: datestr
@@ -361,6 +318,49 @@ program mydate
 
         parse_datetime = .true.
     end function parse_datetime
+
+    function extract_date (year, month, day, i, j, datestr)
+        integer, intent(inout) :: year 
+        integer, intent(inout) :: month 
+        integer, intent(inout) :: day
+        integer, intent(in) :: i 
+        integer, intent(inout) :: j
+        character(*), intent(in) :: datestr
+        integer :: error
+        logical :: extract_date
+        
+        j = j + i
+        if (i < 2) then
+            extract_date = .false.
+            return
+        else if (i == j) then
+            year = 0
+            read(datestr(1:i-1), '(i5)', err=20, iostat=error) month 
+            read(datestr(i+1:), '(i5)', err=20, iostat=error) day
+        else
+            read(datestr(1:i-1), '(i5)', err=20, iostat=error) year 
+            read(datestr(i+1:j-1), '(i5)', err=20, iostat=error) month 
+            read(datestr(j+1:), '(i5)', err=20, iostat=error) day
+        end if
+
+        if (year < 0 .or. day < 1 .or. day > 31) then
+            extract_date = .false.
+            return
+        end if
+
+        if (year < 69) then
+            year = year + 2000
+        else if (year < 100) then
+            year = year + 1900
+        end if
+
+20      if (error /= 0) then
+            extract_date = .false.
+        else
+            extract_date = .true.
+        end if
+
+    end function extract_date
 
     function batch_convert (input_filename, my_format, when)
         implicit none
@@ -553,7 +553,7 @@ program mydate
             case ("R")
                 write (*,"(a5)",advance="no") when%date(12:16)
             case ("s")
-                write (*,"(i10)",advance="no") when
+                write (*,"(i10)",advance="no") when%sec
             case ("S")
                 write (*,"(a2)",advance="no") when%date(18:19)
             case ("t")
